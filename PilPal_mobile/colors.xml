@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Save this as:
+  android/app/src/main/res/values/colors.xml
+
+  Controls the splash screen background color and branding.
+-->
+<resources>
+    <!-- Splash screen background — deep indigo -->
+    <color name="bootsplash_background">#1e1b4b</color>
+
+    <!-- App primary accent -->
+    <color name="primary">#4f46e5</color>
+    <color name="primary_light">#818cf8</color>
+
+    <!-- Notification accent -->
+    <color name="notification_color">#4f46e5</color>
+</resources>
