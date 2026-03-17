@@ -20,8 +20,8 @@
 #include "time.h"
 
 // ── WiFi Credentials ──────────────────────────────────────
-const char* WIFI_SSID        = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD    = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID        = "Ooredoo-ALHN-DA99";
+const char* WIFI_PASSWORD    = "RtvD4bYV9q";
 
 // ── NTP Settings ──────────────────────────────────────────
 const char* NTP_SERVER          = "pool.ntp.org";
@@ -48,7 +48,7 @@ const int stepSequence[8][4] = {
 
 // ── Schedule ──────────────────────────────────────────────
 struct DispenseTime { int hour; int minute; };
-const DispenseTime schedule[3] = {
+DispenseTime schedule[3] = {
   { 9,  0},  // Morning
   {12,  0},  // Midday
   {20,  0}   // Night
@@ -133,21 +133,20 @@ void broadcastStatus() {
     doc["hour"]   = timeInfo.tm_hour;
     doc["minute"] = timeInfo.tm_min;
 
-    // Next dose calculation
+    // Next dose calculation (uses live schedule)
     int nowMinutes = timeInfo.tm_hour * 60 + timeInfo.tm_min;
-    int schedMins[3] = {9*60, 12*60, 20*60};
     int nextMins = -1;
     int nextSession = -1;
     for (int s = 0; s < 3; s++) {
-      if (schedMins[s] > nowMinutes) {
-        nextMins    = schedMins[s];
-        nextSession = s;
-        break;
-      }
+      int sm = schedule[s].hour * 60 + schedule[s].minute;
+      if (sm > nowMinutes) { nextMins = sm; nextSession = s; break; }
     }
-    if (nextMins == -1) { nextMins = 9*60; nextSession = 0; } // tomorrow morning
-    doc["nextDoseMinutes"] = nextMins;
-    doc["nextSession"]     = nextSession;
+    if (nextMins == -1) {
+      nextMins    = schedule[0].hour * 60 + schedule[0].minute;
+      nextSession = 0;
+    }
+    doc["nextDoseMinutes"]  = nextMins;
+    doc["nextSession"]      = nextSession;
     doc["minutesUntilNext"] = (nextMins > nowMinutes)
                                ? (nextMins - nowMinutes)
                                : (nextMins + 24*60 - nowMinutes);
@@ -158,6 +157,14 @@ void broadcastStatus() {
   for (int d = 0; d < 7; d++) {
     JsonArray row = grid.createNestedArray();
     for (int s = 0; s < 3; s++) row.add(dispensed[d][s]);
+  }
+
+  // Current schedule
+  JsonArray sched = doc.createNestedArray("schedule");
+  for (int s = 0; s < 3; s++) {
+    JsonObject t = sched.createNestedObject();
+    t["hour"]   = schedule[s].hour;
+    t["minute"] = schedule[s].minute;
   }
 
   String json;
@@ -243,6 +250,30 @@ void onWebSocketEvent(uint8_t clientNum, WStype_t type, uint8_t* payload, size_t
         memset(dispensed, 0, sizeof(dispensed));
         Serial.println("[WS] Dispensed grid reset");
         broadcastStatus();
+      }
+
+      // Set schedule: { "action": "setschedule", "schedule": [{"hour":8,"minute":30},{"hour":13,"minute":0},{"hour":21,"minute":0}] }
+      else if (strcmp(action, "setschedule") == 0) {
+        JsonArray arr = cmd["schedule"].as<JsonArray>();
+        if (arr.size() == 3) {
+          for (int s = 0; s < 3; s++) {
+            int h = arr[s]["hour"]   | schedule[s].hour;
+            int m = arr[s]["minute"] | schedule[s].minute;
+            // Validate: morning < midday < night, all within 0-23h / 0-59m
+            if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+              schedule[s].hour   = h;
+              schedule[s].minute = m;
+            }
+          }
+          Serial.printf("[WS] Schedule updated: %02d:%02d | %02d:%02d | %02d:%02d\n",
+            schedule[0].hour, schedule[0].minute,
+            schedule[1].hour, schedule[1].minute,
+            schedule[2].hour, schedule[2].minute);
+          // Reset last-dispensed guard so new times take effect today
+          lastDispensedHour = -1;
+          lastDispensedDay  = -1;
+          broadcastStatus();
+        }
       }
 
       break;
